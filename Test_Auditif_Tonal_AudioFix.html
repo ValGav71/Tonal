@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Test Auditif Tonal – Calibration + Oreilles</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 40px; }
+    button, select, input { font-size: 1.1em; margin: 10px; padding: 10px 20px; }
+    #instructions, #calibration, #test, #download { display: none; }
+  </style>
+</head>
+<body>
+  <h1>🎧 Test Auditif Tonal / Pure Tone Audiometry Test</h1>
+
+  <div id="intro">
+    <p><strong>FR :</strong> Ce test permet d'évaluer la perception de sons purs dans chaque oreille. Merci d'utiliser un <u>casque stéréo</u>.</p>
+    <p><strong>EN:</strong> This test evaluates pure tone detection in each ear. Please use <u>stereo headphones</u>.</p>
+    <p>ID participant / Participant ID: <input id="participantId"></p>
+    <button onclick="startCalibration()">▶️ Commencer / Start</button>
+  </div>
+
+  <div id="calibration">
+    <h2>🔊 Calibration</h2>
+    <p><strong>FR :</strong> Réglez le volume pour que le son soit clair et confortable. N’y touchez plus ensuite.</p>
+    <p><strong>EN:</strong> Adjust the volume so the tone is clear and comfortable. Do not change it after that.</p>
+    <button onclick="playCalibrationTone('right')">▶️ 1000 Hz – oreille droite / right ear</button>
+    <button onclick="playCalibrationTone('left')">▶️ 1000 Hz – oreille gauche / left ear</button><br>
+    <button onclick="audioCtx.resume().then(() => startTest())">✅ Volume OK – Démarrer le test / Start test</button>
+  </div>
+
+  <div id="test">
+    <h2 id="testTitle"></h2>
+    <p id="freqLabel"></p>
+    <button onclick="submitResponse(true)">✅ J’ai entendu / Heard</button>
+    <button onclick="submitResponse(false)">❌ Rien entendu / Not heard</button>
+  </div>
+
+  <div id="download">
+    <h2>✅ Test terminé / Test complete</h2>
+    <button onclick="downloadCSV()">📥 Télécharger les résultats / Download results</button>
+  </div>
+
+  <script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const freqs = [125, 250, 500, 1000, 2000, 3000, 4000, 8000];
+    let currentFreqIndex = 0;
+    let currentEar = "right";
+    let intensity = -20;
+    let direction = 1;
+    let reversals = 0;
+    let lastResponse = null;
+    let trial = 0;
+    let results = [];
+
+    function startCalibration() {
+      document.getElementById("intro").style.display = "none";
+      document.getElementById("calibration").style.display = "block";
+    }
+
+    function playCalibrationTone(ear) {
+      playTone(1000, -10, ear);
+    }
+
+    function startTest() {
+      document.getElementById("calibration").style.display = "none";
+      document.getElementById("test").style.display = "block";
+      updateTestTitle();
+      playCurrentTone();
+    }
+
+    function updateTestTitle() {
+      document.getElementById("testTitle").innerText = `🎧 ${currentEar === 'right' ? 'Oreille droite / Right ear' : 'Oreille gauche / Left ear'}`;
+      document.getElementById("freqLabel").innerText = `🔉 ${freqs[currentFreqIndex]} Hz – Intensité : ${intensity} dBFS`;
+    }
+
+    function playTone(freq, db, ear) {
+      const duration = 0.5;
+      const gainValue = Math.pow(10, db / 20);
+
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      const panNode = new StereoPannerNode(audioCtx, { pan: ear === "right" ? 1 : -1 });
+
+      oscillator.type = "sine";
+      oscillator.frequency.value = freq;
+      gainNode.gain.value = gainValue;
+
+      oscillator.connect(gainNode).connect(panNode).connect(audioCtx.destination);
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + duration);
+    }
+
+    function playCurrentTone() {
+      playTone(freqs[currentFreqIndex], intensity, currentEar);
+    }
+
+    function submitResponse(heard) {
+      trial++;
+      direction = heard ? -5 : 5;
+      intensity += direction;
+      if (lastDirection !== null && direction !== lastDirection) {
+        reversals++;
+      }
+      lastDirection = direction;
+
+      results.push({
+        id: document.getElementById("participantId").value,
+        ear: currentEar,
+        freq: freqs[currentFreqIndex],
+        intensity,
+        heard,
+        trial
+      });
+
+      intensity += direction * 5;
+      if (intensity > 0) intensity = 0;
+      if (intensity < -80) intensity = -80;
+
+      if (reversals >= 4) {
+        currentFreqIndex++;
+        intensity = -20;
+        direction = 1;
+        reversals = 0;
+        lastResponse = null;
+      }
+
+      if (currentFreqIndex >= freqs.length) {
+        if (currentEar === "right") {
+          currentEar = "left";
+          currentFreqIndex = 0;
+        } else {
+          document.getElementById("test").style.display = "none";
+          document.getElementById("download").style.display = "block";
+          return;
+        }
+      }
+      updateTestTitle();
+      setTimeout(playCurrentTone, 1000);
+    }
+
+    function downloadCSV() {
+      let csv = "participant,ear,freq,intensity,heard,trial\n";
+      results.forEach(r => {
+        csv += `${r.id},${r.ear},${r.freq},${r.intensity},${r.heard},${r.trial}\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `audiometry_${Date.now()}.csv`;
+      link.click();
+    }
+  </script>
+</body>
+</html>
